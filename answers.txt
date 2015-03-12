@@ -1,0 +1,108 @@
+Name: Vir Thakor
+UCLA ID: 304273900
+
+Collaborators:
+
+-------------------------------------------------------------------------------
+
+Response to Exercise 1:
+When run(current) is replaced with schedule(), sys_getpid() will eventually run
+again, which would most likely have returned an incorrect value. Because
+sys_getpid()'s assembly code operates at the kernel level and returns a value to 
+the %eax register, and schedule() loops through the process currently active
+we can't be certain that %eax won't be overwritten since it's used as a caller
+saved register.
+
+
+Anything else you'd like us to know:
+Exercise 2:
+Edits to mpos-kern.c's do_fork() and copy_stack() functions
+
+Exercise 3:
+- Edits to mpos-kern.c's interrupt() function under case INT_SYS_WAIT and
+  INT_SYS_EXIT.
+- added pid_t p_is_waiting to the process struct in mpos-kern.h
+In order to implement blocking instead of polling, I added a new pid field
+to the process structure to indicate whether a process is waiting on another
+process. When a process's state is P_ZOMBIE, I initialized the field to be 0
+When the current process is being exited, I check the state of the process,
+so if it's blocked, I set the state to run-able and the %eax register to an
+exit status. Because there's a new field to a process, I added a line to 
+do_fork() that sets field to the parent process's pid. This implementation
+allows the processes to wait on its child
+
+Exercise 4:
+In order for the application to run 1024 child processes, I changed the
+code so that the status of the parent and child's ID = 0
+
+Extra credit exercises:
+Exerciese 5:
+void start(void)
+{
+	int x = 0;  /* note that local variable x lives on the stack */
+	
+	int* volatile vol_ptr_x = &x;
+	
+	pid_t p = sys_fork();
+	if(p == 0)
+	{
+		x++;
+		if (*vol_ptr_x == 0)
+		   (*vol_ptr_x)++;
+		
+	}
+	else if (p > 0)
+	     sys_wait(p); // assume blocking implementation
+	app_printf("%d", x);
+	sys_exit(0);
+}
+
+Exercise 6: // not fully working 
+pid_t sys_newthread(void (*start_function)(void))
+{
+    pid_t result;
+    // start with empty stack
+    // instead of starting at same instruction as parent, executes start_function
+    //function's address becomes the new thread's instruction pointer
+    asm volatile("int %1\n"
+    	     :"=a" (result)
+	     :"i" (INT_SYS_NEWTHREAD),	// new case in mpos-kern.c
+	     "a" (start_function)	// format from sys_exit
+	     :"cc", "memory")';
+    return result;
+}
+In order to implement sys_newthread(), several other files had to be
+modified:
+-added a new case to mpos-kern.c's interrupt() function to account for 
+the sys_newthread system call.
+-added a definition of INT_SYS_NEWTHREAD to mpos.h
+-the sys_newthread() function itself in mpos-app.h
+I made the stack pointer point to the top of the stack, and the instruction
+pointer to the address of the start_function, which is put in scheduling
+
+Program doesn't operate as expected when I tried to switch from forking to
+creating threads.
+
+Exercise 7:  // not working
+sys_kill(pid_t pid)
+{
+   pid_t result;
+   asm volatile("int %1\n"
+            :"=a" (result)
+	    :"i" (INT_SYS_KILL),
+	    "a" (pid)
+	    :"cc", "memory");
+   return result;
+}
+Edits to:
+-mpos-app2.c in the run_child() function
+-mpos-app.h with a sys_kill() function
+-mpos-kern.c with an additional case in interrupt() for sys_kill
+I implemented kill operating off the following logic. A process can't kill
+itseld, and if a process kills another the exit value is -1. When a process
+is killed the kernel changes its status to P_ZOMBIE and exit status to -1.
+To change how the 1024 processes are printed, I added code to determine
+which process to run and which to kill in mpos-app2.c
+
+Error is logic in my edit to run_child() in mpos-app2.c is flawed because
+the processes 1 and 2 aren't running, but 3-15 are operating
